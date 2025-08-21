@@ -1,0 +1,25 @@
+name: get_m2f_weight
+on: workflow_dispatch
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Make folder
+        run: mkdir -p m2f
+
+      - name: Download Mask2Former ADE20K Swin-B (IN21k) pth
+        run: |
+          curl -L --retry 8 --retry-delay 10 \
+            -H "User-Agent: Mozilla/5.0" \
+            -o m2f/model_final_0539.pth \
+            "https://dl.fbaipublicfiles.com/maskformer/mask2former/ade20k/semantic/mask2former_swin_base_IN21k_bs16_160k_res512/model_final_0539.pth"
+          ls -lh m2f
+          # 防 0KB：若小于 10MB 直接失败（官方权重 ~百MB 级，绝不会只有几 MB）
+          test $(stat -c%s "m2f/model_final_0539.pth") -ge 10000000
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model_final_0539
+          path: m2f/model_final_0539.pth
+          if-no-files-found: error
