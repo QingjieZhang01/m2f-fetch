@@ -1,25 +1,51 @@
-name: get_m2f_weight
-on: workflow_dispatch
+name: Get Mask2Former ADE20K Weights
+
+on:
+  workflow_dispatch: {}
+
 jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Make folder
-        run: mkdir -p m2f
-
-      - name: Download Mask2Former ADE20K Swin-B (IN21k) pth
+      - name: Prepare folder
         run: |
-          curl -L --retry 8 --retry-delay 10 \
-            -H "User-Agent: Mozilla/5.0" \
-            -o m2f/model_final_0539.pth \
-            "https://dl.fbaipublicfiles.com/maskformer/mask2former/ade20k/semantic/mask2former_swin_base_IN21k_bs16_160k_res512/model_final_0539.pth"
-          ls -lh m2f
-          # 防 0KB：若小于 10MB 直接失败（官方权重 ~百MB 级，绝不会只有几 MB）
-          test $(stat -c%s "m2f/model_final_0539.pth") -ge 10000000
+          mkdir -p weights
+
+      # 方案 B 的关键：在 GitHub 云端机器下载，通常不会 403
+      - name: Download Mask2Former ADE20K Swin-B (IN21k) .pth
+        id: dl
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://dl.fbaipublicfiles.com/maskformer/mask2former_swin_base_IN21k_384_bs16_160k/model_final.pth"
+          # 先试 curl（多次重试，伪装 UA，超时加长）
+          if ! curl -L --retry 10 --retry-delay 10 --connect-timeout 30 --max-time 0 \
+               -H "User-Agent: Mozilla/5.0" \
+               -o "weights/model_final_0539.pth" "$URL"; then
+            echo "curl failed, try wget..."
+            # 再试 wget（同样多次重试）
+            wget --server-response --tries=10 --timeout=30 \
+                 -O "weights/model_final_0539.pth" "$URL" || true
+          fi
+
+          # 尺寸校验，防止 0 KB / 只有 100 多字节的错误页
+          BYTES=$(wc -c < "weights/model_final_0539.pth" || echo 0)
+          echo "Downloaded size: ${BYTES} bytes"
+          if [ "$BYTES" -lt 1000000 ]; then
+            echo "File too small, looks like an error page. Fail the job."
+            exit 1
+          fi
+
+          # 可选：计算校验和，便于你后续核对
+          sha256sum "weights/model_final_0539.pth" | tee weights/SHA256.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: model_final_0539
-          path: m2f/model_final_0539.pth
+          name: m2f_ade20k_swinb_in21k_pth
+          path: |
+            weights/model_final_0539.pth
+            weights/SHA256.txt
           if-no-files-found: error
+          compression-level: 0  # 不压缩，下载更稳
+
